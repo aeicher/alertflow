@@ -4,9 +4,8 @@ import { prisma } from './prisma';
 /**
  * Verify Slack signing secret to ensure request integrity.
  */
-export async function verifySlackRequest(request: Request): Promise<boolean> {
+export async function verifySlackRequest(request: Request, rawBody: string): Promise<boolean> {
   try {
-    const rawBody = await request.text();
     const timestamp = request.headers.get('x-slack-request-timestamp') || '';
     const signature = request.headers.get('x-slack-signature') || '';
 
@@ -48,8 +47,15 @@ export async function verifySlackRequest(request: Request): Promise<boolean> {
  * You can extend this logic to fetch a list from DB or match naming conventions.
  */
 export function isIncidentChannel(channelId: string): boolean {
-  // Example: incident channels start with "CINC" or have "incident" in name
-  return channelId.startsWith('CINC');
+  const incidentChannels = [
+    'alerts',
+    'incidents',
+    'CINC',
+  ];
+  
+  return incidentChannels.some(channel => 
+    channelId.includes(channel) || channelId.startsWith(channel)
+  );
 }
 
 /**
@@ -100,9 +106,8 @@ export async function analyzeIncidentMessage(event: any) {
     });
   }
 
-  // Generate streaming analysis from GPT-4o
   const stream = await openai.chat.completions.create({
-    model: 'gpt-4o-mini',
+    model: 'gpt-4o',
     messages: [
       {
         role: 'system',
@@ -120,7 +125,6 @@ export async function analyzeIncidentMessage(event: any) {
   for await (const chunk of stream) {
     const content = chunk.choices[0]?.delta?.content || '';
     fullResponse += content;
-    // Update Slack message in real-time (threaded reply)
     await fetchSlackMessage({
       channel: channelId,
       thread_ts: threadTs,
@@ -128,7 +132,6 @@ export async function analyzeIncidentMessage(event: any) {
     });
   }
 
-  // Persist AI summary in DB once complete
   await prisma.incidents.update({
     where: { id: incident.id },
     data: { ai_summary: fullResponse },

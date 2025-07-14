@@ -19,8 +19,6 @@ export async function getCurrentUser(): Promise<User | null> {
   }
 
   try {
-    // In a real app, you'd verify the session token against your database
-    // For now, we'll use a simple JWT-like approach
     const decoded = JSON.parse(Buffer.from(sessionToken, 'base64').toString());
     
     if (decoded.exp && Date.now() > decoded.exp) {
@@ -28,7 +26,7 @@ export async function getCurrentUser(): Promise<User | null> {
     }
 
     return decoded.user;
-  } catch {
+  } catch (error) {
     return null;
   }
 }

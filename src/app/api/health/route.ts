@@ -1,7 +1,5 @@
 import { NextResponse } from 'next/server';
 
-export const runtime = 'edge';
-
 export async function GET() {
   try {
     const health = {
@@ -11,12 +9,11 @@ export async function GET() {
       environment: process.env.NODE_ENV || 'development',
       checks: {
         database: 'unknown',
-        slack: 'unknown',
-        openai: 'unknown',
-      },
+        slack: 'unknown', 
+        openai: 'unknown'
+      }
     };
 
-    // Check database connectivity
     try {
       const { prisma } = await import('../../lib/prisma');
       await prisma.$queryRaw`SELECT 1`;
@@ -26,18 +23,13 @@ export async function GET() {
       console.error('Database health check failed:', error);
     }
 
-    // Check Slack API connectivity (simplified for Edge Runtime)
     try {
-      if (process.env.SLACK_BOT_TOKEN) {
-        // Simple token validation without using the WebClient
-        const token = process.env.SLACK_BOT_TOKEN;
-        if (token.startsWith('xoxb-')) {
-          health.checks.slack = 'configured';
-        } else {
-          health.checks.slack = 'invalid_token_format';
-        }
-      } else {
+      if (!process.env.SLACK_BOT_TOKEN) {
         health.checks.slack = 'not_configured';
+      } else if (process.env.SLACK_BOT_TOKEN.startsWith('xoxb-')) {
+        health.checks.slack = 'configured';
+      } else {
+        health.checks.slack = 'invalid_token_format';
       }
     } catch (error) {
       health.checks.slack = 'unhealthy';
@@ -46,22 +38,23 @@ export async function GET() {
 
     // Check OpenAI API connectivity
     try {
-      if (process.env.OPENAI_API_KEY) {
+      if (!process.env.OPENAI_API_KEY) {
+        health.checks.openai = 'not_configured';
+      } else {
         const { openai } = await import('../../lib/openai');
         await openai.models.list();
         health.checks.openai = 'healthy';
-      } else {
-        health.checks.openai = 'not_configured';
       }
     } catch (error) {
       health.checks.openai = 'unhealthy';
       console.error('OpenAI health check failed:', error);
     }
 
-    // Determine overall health
     const allChecks = Object.values(health.checks);
     const hasUnhealthy = allChecks.includes('unhealthy');
-    const hasConfigured = allChecks.some(check => check === 'healthy' || check === 'configured' || check === 'not_configured');
+    const hasConfigured = allChecks.some(check => 
+      ['healthy', 'configured', 'not_configured'].includes(check)
+    );
 
     if (hasUnhealthy) {
       health.status = 'degraded';
@@ -69,18 +62,15 @@ export async function GET() {
       health.status = 'unhealthy';
     }
 
-    const statusCode = health.status === 'healthy' ? 200 : health.status === 'degraded' ? 200 : 503;
+    const statusCode = health.status === 'unhealthy' ? 503 : 200;
 
     return NextResponse.json(health, { status: statusCode });
   } catch (error) {
     console.error('Health check failed:', error);
-    return NextResponse.json(
-      {
-        status: 'unhealthy',
-        timestamp: new Date().toISOString(),
-        error: 'Health check failed',
-      },
-      { status: 503 }
-    );
+    return NextResponse.json({
+      status: 'unhealthy',
+      timestamp: new Date().toISOString(),
+      error: 'Health check failed'
+    }, { status: 503 });
   }
-} 
+}

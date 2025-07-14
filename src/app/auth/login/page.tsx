@@ -11,7 +11,7 @@ export default function LoginPage() {
     setIsLoading(true);
     
     const clientId = process.env.NEXT_PUBLIC_SLACK_CLIENT_ID;
-    const redirectUri = `${window.location.origin}/api/slack/oauth`;
+    const redirectUri = `https://81245985dcbc.ngrok-free.app/api/slack/oauth`;
     const scope = 'chat:write,commands,channels:read,users:read';
     
     const slackAuthUrl = `https://slack.com/oauth/v2/authorize?client_id=${clientId}&scope=${scope}&redirect_uri=${encodeURIComponent(redirectUri)}`;

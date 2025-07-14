@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '../../../lib/prisma';
 
-export const runtime = 'edge';
-
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
@@ -13,7 +11,6 @@ export async function GET(request: NextRequest) {
     const offset = parseInt(searchParams.get('offset') || '0');
     const search = searchParams.get('search');
 
-    // Build where clause
     const where: any = {};
     
     if (status) where.status = status;
@@ -28,22 +25,21 @@ export async function GET(request: NextRequest) {
       ];
     }
 
-    // Get incidents with pagination
-    const incidents = await prisma.incidents.findMany({
-      where,
-      orderBy: { created_at: 'desc' },
-      take: limit,
-      skip: offset,
-      include: {
-        incident_queries: {
-          take: 5,
-          orderBy: { created_at: 'desc' },
+    const [incidents, total] = await Promise.all([
+      prisma.incidents.findMany({
+        where,
+        orderBy: { created_at: 'desc' },
+        take: limit,
+        skip: offset,
+        include: {
+          incident_queries: {
+            take: 5,
+            orderBy: { created_at: 'desc' },
+          },
         },
-      },
-    });
-
-    // Get total count for pagination
-    const total = await prisma.incidents.count({ where });
+      }),
+      prisma.incidents.count({ where })
+    ]);
 
     return NextResponse.json({
       success: true,
@@ -67,8 +63,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const { query, incidentId, userId } = body;
+    const { query, incidentId, userId } = await request.json();
 
     if (!query || !userId) {
       return NextResponse.json(
@@ -77,7 +72,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Create incident query
     const incidentQuery = await prisma.incident_queries.create({
       data: {
         query,
@@ -86,8 +80,8 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    // If this is a query about a specific incident, get the incident data
     let response: string | null = null;
+
     if (incidentId) {
       const incident = await prisma.incidents.findUnique({
         where: { id: incidentId },
@@ -100,10 +94,9 @@ export async function POST(request: NextRequest) {
       });
 
       if (incident) {
-        // Generate AI response based on incident data
         const { openai } = await import('../../../lib/openai');
         const aiResponse = await openai.chat.completions.create({
-          model: 'gpt-4o-mini',
+          model: 'gpt-4o',
           messages: [
             {
               role: 'system',
@@ -124,7 +117,6 @@ Question: ${query}`
 
         response = aiResponse.choices[0]?.message?.content || 'No response generated';
 
-        // Update the query with the response
         await prisma.incident_queries.update({
           where: { id: incidentQuery.id },
           data: { response },
@@ -145,4 +137,4 @@ Question: ${query}`
       { status: 500 }
     );
   }
-} 
+}

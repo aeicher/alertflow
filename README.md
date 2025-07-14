@@ -1,6 +1,6 @@
 # AlertFlow
 
-Ever been on-call and wished you could just magically tell what's actually going wrong with your systems? Well, I built the next best thing. AlertFlow is an incident management platform that brings together Slack, AI-powered analysis, and a clean web dashboard to help you sleep better at night (and respond faster when you can't).
+Ever been on-call and wished you could just magically tell what's actually going wrong with your systems? AlertFlow is an incident management platform that brings together Slack, AI-powered analysis, and a clean web dashboard to help you sleep better at night (and respond faster when you can't).
 
 ## How this helps you
 
@@ -247,7 +247,3 @@ Here's what's next on this roadmap:
 ## License
 
 MIT - Use it, modify it, share it.
-
----
-
-*Built by an on-call engineer, for on-call engineers. If this helps save you from a night owl debugging session, consider giving it a star! ⭐*

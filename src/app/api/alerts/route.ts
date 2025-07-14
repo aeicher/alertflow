@@ -1,38 +1,33 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '../../lib/prisma';
 
-export const runtime = 'edge';
-
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const status = searchParams.get('status');
-    const severity = searchParams.get('severity');
+    const severity = searchParams.get('severity'); 
     const source = searchParams.get('source');
     const limit = parseInt(searchParams.get('limit') || '50');
     const offset = parseInt(searchParams.get('offset') || '0');
 
-    // Build where clause
     const where: any = {};
-    
     if (status) where.status = status;
     if (severity) where.severity = severity;
     if (source) where.source = source;
 
-    // Get alerts with pagination
-    const alerts = await prisma.alert.findMany({
-      where,
-      orderBy: { created_at: 'desc' },
-      take: limit,
-      skip: offset,
-      include: {
-        incident: true,
-        user: true,
-      },
-    });
-
-    // Get total count for pagination
-    const total = await prisma.alert.count({ where });
+    const [alerts, total] = await Promise.all([
+      prisma.alert.findMany({
+        where,
+        orderBy: { created_at: 'desc' },
+        take: limit,
+        skip: offset,
+        include: {
+          incident: true,
+          user: true,
+        },
+      }),
+      prisma.alert.count({ where })
+    ]);
 
     return NextResponse.json({
       success: true,
@@ -44,7 +39,6 @@ export async function GET(request: NextRequest) {
         hasMore: offset + limit < total,
       },
     });
-
   } catch (error) {
     console.error('Error querying alerts:', error);
     return NextResponse.json(
@@ -56,8 +50,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const { title, description, severity, source, rawData, incidentId, assignedUserId } = body;
+    const { title, description, severity, source, rawData, incidentId, assignedUserId } = await request.json();
 
     if (!title || !severity || !source) {
       return NextResponse.json(
@@ -66,7 +59,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Create alert
     const alert = await prisma.alert.create({
       data: {
         title,
@@ -87,7 +79,6 @@ export async function POST(request: NextRequest) {
       success: true,
       alert,
     });
-
   } catch (error) {
     console.error('Error creating alert:', error);
     return NextResponse.json(
@@ -95,4 +86,4 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   }
-} 
+}

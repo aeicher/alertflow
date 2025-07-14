@@ -2,54 +2,69 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '../../lib/prisma';
 import { openai } from '../../lib/openai';
 
-export const runtime = 'edge';
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+};
+
+export async function OPTIONS(request: NextRequest) {
+  return new Response(null, { status: 204, headers: corsHeaders });
+}
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const contentType = request.headers.get('content-type') || '';
     
-    let alertData: any = body;
-    let source = 'unknown';
+    let alertData = parseWebhookData(body, contentType);
+    const analysisResult = await analyzeAlert(alertData, body);
+    await sendSlackNotification(alertData, analysisResult);
 
-    // Determine the source based on headers or payload structure
-    if (contentType.includes('application/vnd.pagerduty+json')) {
-      source = 'pagerduty';
-      alertData = parsePagerDutyWebhook(body);
-    } else if (body.datadog) {
-      source = 'datadog';
-      alertData = parseDataDogWebhook(body);
-    } else if (body.alertmanager) {
-      source = 'prometheus';
-      alertData = parsePrometheusWebhook(body);
-    } else {
-      // Generic webhook format
-      alertData = {
-        title: body.title || body.name || 'Alert from webhook',
-        description: body.description || body.message || body.summary || '',
-        severity: body.severity || body.priority || 'medium',
-        raw_data: body,
-      };
-    }
+    return NextResponse.json({
+      success: true,
+      message: 'Webhook processed with AI analysis',
+      alert: alertData,
+      ai_analysis: analysisResult,
+      received_at: new Date().toISOString(),
+    }, { headers: corsHeaders });
 
-    // Create alert in database
-    const alert = await prisma.alert.create({
-      data: {
-        title: alertData.title,
-        description: alertData.description,
-        severity: alertData.severity,
-        source: source,
-        raw_data: alertData.raw_data || body,
-      },
-    });
+  } catch (error) {
+    console.error('Webhook error:', error);
+    return NextResponse.json(
+      { error: 'Failed to process webhook' },
+      { status: 500, headers: corsHeaders }
+    );
+  }
+}
 
-    // Generate AI analysis of the alert
-    const analysis = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages: [
-        {
-          role: 'system',
-          content: `You are an expert SRE analyzing alerts. Provide:
+function parseWebhookData(body: any, contentType: string) {
+  if (contentType.includes('application/vnd.pagerduty+json')) {
+    return parsePagerDutyWebhook(body);
+  } 
+  if (body.datadog) {
+    return parseDataDogWebhook(body);
+  }
+  if (body.alertmanager) {
+    return parsePrometheusWebhook(body);
+  }
+  
+  return {
+    title: body.title || body.name || 'Alert from webhook',
+    description: body.description || body.message || body.summary || '',
+    severity: body.severity || body.priority || 'medium',
+    raw_data: body,
+    source: body.source || 'webhook'
+  };
+}
+
+async function analyzeAlert(alertData: any, rawBody: any) {
+  const analysis = await openai.chat.completions.create({
+    model: 'gpt-4o',
+    messages: [
+      {
+        role: 'system',
+        content: `You are an expert SRE analyzing alerts. Provide:
 1. A concise summary of the alert
 2. Severity assessment (low, medium, high, critical)
 3. Potential root causes
@@ -65,69 +80,80 @@ Format your response as JSON with these fields:
   "create_incident": true|false,
   "reasoning": "Why this should/shouldn't create an incident"
 }`
-        },
-        {
-          role: 'user',
-          content: `Alert: ${alertData.title}
-Description: ${alertData.description}
-Source: ${source}
-Raw Data: ${JSON.stringify(alertData.raw_data || body, null, 2)}`
-        }
-      ],
-      temperature: 0.3,
-    });
-
-    const analysisContent = analysis.choices[0]?.message?.content || '';
-    let analysisResult: any = null;
-
-    try {
-      analysisResult = JSON.parse(analysisContent);
-    } catch {
-      analysisResult = { summary: analysisContent };
-    }
-
-    // Update alert with analysis
-    await prisma.alert.update({
-      where: { id: alert.id },
-      data: {
-        severity: analysisResult.severity || alertData.severity,
       },
-    });
+      {
+        role: 'user',
+        content: `Alert: ${alertData.title}
+Description: ${alertData.description}
+Source: ${alertData.source}
+Raw Data: ${JSON.stringify(alertData.raw_data || rawBody, null, 2)}`
+      }
+    ],
+    temperature: 0.3,
+  });
 
-    // If AI suggests creating an incident, do so
-    if (analysisResult.create_incident) {
-      const incident = await prisma.incidents.create({
-        data: {
-          slack_channel_id: 'webhook',
-          slack_message_ts: new Date().toISOString(),
-          title: alertData.title,
-          severity: analysisResult.severity || alertData.severity,
-          raw_logs: JSON.stringify(alertData.raw_data || body, null, 2),
-          ai_summary: analysisContent,
-          suggested_actions: analysisResult,
-        },
-      });
+  const analysisContent = analysis.choices[0]?.message?.content || '';
 
-      // Link alert to incident
-      await prisma.alert.update({
-        where: { id: alert.id },
-        data: { incident_id: incident.id },
-      });
+  try {
+    const cleanContent = analysisContent.replace(/```json\n?|\n?```/g, '').trim();
+    return JSON.parse(cleanContent);
+  } catch {
+    try {
+      return JSON.parse(analysisContent);
+    } catch {
+      return { 
+        summary: analysisContent,
+        severity: alertData.severity,
+        create_incident: false 
+      };
+    }
+  }
+}
+
+async function sendSlackNotification(alertData: any, analysisResult: any) {
+  try {
+    const { fetchSlackMessage } = await import('../../lib/alerts');
+    const channelName = '#alerts';
+    let slackMessage;
+
+    if (analysisResult.create_incident && ['medium', 'high', 'critical'].includes(analysisResult.severity)) {
+      slackMessage = formatHighPriorityMessage(alertData, analysisResult);
+    } else {
+      slackMessage = formatLowPriorityMessage(alertData, analysisResult);
     }
 
-    return NextResponse.json({
-      success: true,
-      alert_id: alert.id,
-      analysis: analysisResult,
+    await fetchSlackMessage({
+      channel: channelName,
+      text: slackMessage,
     });
-
   } catch (error) {
-    console.error('Webhook error:', error);
-    return NextResponse.json(
-      { error: 'Failed to process webhook' },
-      { status: 500 }
-    );
+    console.error('Failed to send Slack notification:', error);
   }
+}
+
+function formatHighPriorityMessage(alertData: any, analysisResult: any) {
+  return `🚨 High-Priority Incident Created
+        
+Alert: ${alertData.title}
+Severity: ${analysisResult.severity?.toUpperCase()}
+Summary: ${analysisResult.summary}
+
+Immediate Actions:
+${analysisResult.immediate_actions?.map((action: string) => `• ${action}`).join('\n') || 'No actions specified'}
+
+Root Causes:
+${analysisResult.root_causes?.map((cause: string) => `• ${cause}`).join('\n') || 'Analysis in progress'}
+
+Analyzed by AlertFlow AI`;
+}
+
+function formatLowPriorityMessage(alertData: any, analysisResult: any) {
+  return `${alertData.title}
+
+Summary: ${analysisResult.summary}
+Severity: ${analysisResult.severity?.toUpperCase()}
+
+Analyzed by AlertFlow AI`;
 }
 
 function parsePagerDutyWebhook(body: any) {
@@ -137,6 +163,7 @@ function parsePagerDutyWebhook(body: any) {
     description: incident?.incident?.description || '',
     severity: incident?.incident?.urgency || 'medium',
     raw_data: body,
+    source: 'pagerduty'
   };
 }
 
@@ -147,6 +174,7 @@ function parseDataDogWebhook(body: any) {
     description: alert?.message || '',
     severity: alert?.priority || 'medium',
     raw_data: body,
+    source: 'datadog'
   };
 }
 
@@ -158,5 +186,6 @@ function parsePrometheusWebhook(body: any) {
     description: alert?.annotations?.description || alert?.annotations?.summary || '',
     severity: alert?.labels?.severity || 'medium',
     raw_data: body,
+    source: 'prometheus'
   };
-} 
+}

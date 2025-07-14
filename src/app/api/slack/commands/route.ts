@@ -3,17 +3,16 @@ import { verifySlackRequest } from '../../../lib/alerts';
 import { prisma } from '../../../lib/prisma';
 import { openai } from '../../../lib/openai';
 
-export const runtime = 'edge';
-
 export async function POST(request: NextRequest) {
   try {
-    // Verify Slack signature
-    const isAuthentic = await verifySlackRequest(request);
+    const rawBody = await request.text();
+    
+    const isAuthentic = await verifySlackRequest(request, rawBody);
     if (!isAuthentic) {
       return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
     }
 
-    const formData = await request.formData();
+    const formData = new URLSearchParams(rawBody);
     const command = formData.get('command') as string;
     const text = formData.get('text') as string;
     const userId = formData.get('user_id') as string;
@@ -31,27 +30,16 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Get recent incidents for context
     const recentIncidents = await prisma.incidents.findMany({
-      where: {
-        OR: [
-          { slack_channel_id: channelId },
-          { status: 'active' },
-        ],
-      },
+      take: 10,
       orderBy: { created_at: 'desc' },
-      take: 5,
-      include: {
-        incident_queries: {
-          take: 3,
-          orderBy: { created_at: 'desc' },
-        },
-      },
+      where: { status: { in: ['active', 'investigating', 'monitoring'] } },
     });
 
-    // Generate AI response
-    const aiResponse = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+    setTimeout(async () => {
+      try {
+        const aiResponse = await openai.chat.completions.create({
+      model: 'gpt-4o',
       messages: [
         {
           role: 'system',
@@ -62,7 +50,7 @@ export async function POST(request: NextRequest) {
         },
         {
           role: 'user',
-          content: `Recent incidents: ${recentIncidents.map(inc => 
+              content: `Recent incidents: ${recentIncidents.map((inc: any) => 
             `${inc.title || 'Untitled'} (${inc.status}): ${inc.ai_summary || 'No summary'}`
           ).join('\n')}
           
@@ -72,19 +60,8 @@ export async function POST(request: NextRequest) {
       temperature: 0.3,
     });
 
-    const response = aiResponse.choices[0]?.message?.content || 'No response generated';
-
-    // Store the query
-    await prisma.incident_queries.create({
-      data: {
-        query: text,
-        user_id: userId,
-        response: response,
-      },
-    });
-
-    // Send response to Slack
-    const slackResponse = await fetch(responseUrl, {
+        const response = aiResponse.choices[0]?.message?.content || 'No response generated';
+        await fetch(responseUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -100,15 +77,25 @@ export async function POST(request: NextRequest) {
           },
         ],
       }),
-    });
-
-    if (!slackResponse.ok) {
-      console.error('Failed to send Slack response:', await slackResponse.text());
+        });
+      } catch (error) {
+        console.error('Error in async processing:', error);
+        await fetch(responseUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            response_type: 'ephemeral',
+            text: 'Sorry, I encountered an error generating the response.',
+          }),
+        });
     }
+    }, 100);
 
     return NextResponse.json({
       response_type: 'ephemeral',
-      text: 'Response sent to channel',
+      text: '🤖 Analyzing your request... Response coming shortly!',
     });
 
   } catch (error) {
