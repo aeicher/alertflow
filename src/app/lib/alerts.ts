@@ -1,4 +1,4 @@
-import { openai } from './openai';
+import { anthropic } from './anthropic';
 import { prisma } from './prisma';
 
 /**
@@ -106,25 +106,23 @@ export async function analyzeIncidentMessage(event: any) {
     });
   }
 
-  const stream = await openai.chat.completions.create({
-    model: 'gpt-4o',
+  const stream = await anthropic.messages.stream({
+    model: 'claude-sonnet-4-5-20250929',
+    max_tokens: 4096,
+    system: 'You are an expert SRE analyzing incident logs. Provide concise summaries and actionable next steps.',
     messages: [
-      {
-        role: 'system',
-        content: 'You are an expert SRE analyzing incident logs. Provide concise summaries and actionable next steps.'
-      },
       {
         role: 'user',
         content: `Analyze these incident logs: ${logs}`
       }
     ],
-    stream: true,
   });
 
   let fullResponse = '';
-  for await (const chunk of stream) {
-    const content = chunk.choices[0]?.delta?.content || '';
-    fullResponse += content;
+  for await (const event of stream) {
+    if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
+      fullResponse += event.delta.text;
+    }
     await fetchSlackMessage({
       channel: channelId,
       thread_ts: threadTs,

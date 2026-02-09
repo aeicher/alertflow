@@ -5,7 +5,7 @@ Ever been on-call and wished you could just magically tell what's actually going
 ## How this helps you
 
 **🔔 Slack integration** - Your alerts come to you where you already are, and the AI actually understands what's happening  
-**🧠 AI that gets it** - GPT-4o analyzes your incidents and gives you real recommendations on what to do
+**🧠 AI that gets it** - Claude analyzes your incidents and gives you real recommendations on what to do
 **📊 Dashboard that doesn't suck** - Beautiful, responsive interface that shows you what matters without the clutter  
 **🎯 Plays nice with everything** - PagerDuty, DataDog, Prometheus, custom webhooks - if it can send alerts, AlertFlow can handle them  
 **⚡ Real-time everything** - Live updates, instant notifications, no refresh button mashing  
@@ -19,7 +19,7 @@ I built this with modern tools that work well together:
 - **Frontend**: Next.js 14 with React 18 and TypeScript
 - **Backend**: Next.js API routes running on Edge Runtime for speed
 - **Database**: PostgreSQL with Prisma
-- **AI**: GPT-4o
+- **AI**: Claude (Anthropic)
 - **Slack**: Full Web API integration with event subscriptions
 - **Deployment**: Vercel
 
@@ -29,7 +29,7 @@ Please have these ready:
 - Node.js 18 or newer
 - Postgres DB
 - Slack app (we'll walk you through this)
-- OpenAI API key
+- Anthropic API key
 - Vercel account for deployment
 
 ## Getting up and running
@@ -54,8 +54,8 @@ SLACK_SIGNING_SECRET="your-signing-secret"
 SLACK_CLIENT_ID="your-client-id"
 SLACK_CLIENT_SECRET="your-client-secret"
 
-# OpenAI for the smart stuff
-OPENAI_API_KEY="sk-your-openai-key"
+# Anthropic for the smart stuff
+ANTHROPIC_API_KEY="sk-ant-your-anthropic-key"
 
 # Your app's URL
 NEXT_PUBLIC_BASE_URL="http://localhost:3000"
@@ -215,7 +215,7 @@ src/
 - `GET /api/health` tells you if everything is working
 - Database connectivity check
 - Slack API connectivity check
-- OpenAI API connectivity check
+- Anthropic API connectivity check
 
 ## Contributing
 

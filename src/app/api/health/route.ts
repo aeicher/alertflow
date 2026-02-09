@@ -10,7 +10,7 @@ export async function GET() {
       checks: {
         database: 'unknown',
         slack: 'unknown', 
-        openai: 'unknown'
+        anthropic: 'unknown'
       }
     };
 
@@ -36,18 +36,22 @@ export async function GET() {
       console.error('Slack health check failed:', error);
     }
 
-    // Check OpenAI API connectivity
+    // Check Anthropic API connectivity
     try {
-      if (!process.env.OPENAI_API_KEY) {
-        health.checks.openai = 'not_configured';
+      if (!process.env.ANTHROPIC_API_KEY) {
+        health.checks.anthropic = 'not_configured';
       } else {
-        const { openai } = await import('../../lib/openai');
-        await openai.models.list();
-        health.checks.openai = 'healthy';
+        const { anthropic } = await import('../../lib/anthropic');
+        await anthropic.messages.create({
+          model: 'claude-sonnet-4-5-20250929',
+          max_tokens: 1,
+          messages: [{ role: 'user', content: 'hi' }],
+        });
+        health.checks.anthropic = 'healthy';
       }
     } catch (error) {
-      health.checks.openai = 'unhealthy';
-      console.error('OpenAI health check failed:', error);
+      health.checks.anthropic = 'unhealthy';
+      console.error('Anthropic health check failed:', error);
     }
 
     const allChecks = Object.values(health.checks);

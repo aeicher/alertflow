@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '../../lib/prisma';
-import { openai } from '../../lib/openai';
+import { anthropic } from '../../lib/anthropic';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -59,12 +59,10 @@ function parseWebhookData(body: any, contentType: string) {
 }
 
 async function analyzeAlert(alertData: any, rawBody: any) {
-  const analysis = await openai.chat.completions.create({
-    model: 'gpt-4o',
-    messages: [
-      {
-        role: 'system',
-        content: `You are an expert SRE analyzing alerts. Provide:
+  const analysis = await anthropic.messages.create({
+    model: 'claude-sonnet-4-5-20250929',
+    max_tokens: 4096,
+    system: `You are an expert SRE analyzing alerts. Provide:
 1. A concise summary of the alert
 2. Severity assessment (low, medium, high, critical)
 3. Potential root causes
@@ -79,8 +77,8 @@ Format your response as JSON with these fields:
   "immediate_actions": ["action1", "action2"],
   "create_incident": true|false,
   "reasoning": "Why this should/shouldn't create an incident"
-}`
-      },
+}`,
+    messages: [
       {
         role: 'user',
         content: `Alert: ${alertData.title}
@@ -92,7 +90,7 @@ Raw Data: ${JSON.stringify(alertData.raw_data || rawBody, null, 2)}`
     temperature: 0.3,
   });
 
-  const analysisContent = analysis.choices[0]?.message?.content || '';
+  const analysisContent = analysis.content[0].type === 'text' ? analysis.content[0].text : '';
 
   try {
     const cleanContent = analysisContent.replace(/```json\n?|\n?```/g, '').trim();

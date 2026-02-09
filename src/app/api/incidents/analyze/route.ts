@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '../../../lib/prisma';
-import { openai } from '../../../lib/openai';
+import { anthropic } from '../../../lib/anthropic';
 
 export async function POST(request: NextRequest) {
   try {
@@ -39,12 +39,10 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const analysis = await openai.chat.completions.create({
-      model: 'gpt-4',
-      messages: [
-        {
-          role: 'system',
-          content: `You are an expert SRE analyzing incident logs. Provide:
+    const analysis = await anthropic.messages.create({
+      model: 'claude-sonnet-4-5-20250929',
+      max_tokens: 4096,
+      system: `You are an expert SRE analyzing incident logs. Provide:
 1. A concise summary of the incident
 2. Severity assessment (low, medium, high, critical)
 3. Root cause analysis
@@ -58,8 +56,8 @@ Format your response as JSON with these fields:
   "root_cause": "Analysis of root cause",
   "immediate_actions": ["action1", "action2"],
   "recommendations": ["rec1", "rec2"]
-}`
-        },
+}`,
+      messages: [
         {
           role: 'user',
           content: `Analyze these incident logs: ${logs}`
@@ -68,7 +66,7 @@ Format your response as JSON with these fields:
       temperature: 0.3,
     });
 
-    const analysisContent = analysis.choices[0]?.message?.content || '';
+    const analysisContent = analysis.content[0].type === 'text' ? analysis.content[0].text : '';
     let suggestedActions;
 
     try {

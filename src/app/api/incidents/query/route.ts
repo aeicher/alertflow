@@ -94,14 +94,12 @@ export async function POST(request: NextRequest) {
       });
 
       if (incident) {
-        const { openai } = await import('../../../lib/openai');
-        const aiResponse = await openai.chat.completions.create({
-          model: 'gpt-4o',
+        const { anthropic } = await import('../../../lib/anthropic');
+        const aiResponse = await anthropic.messages.create({
+          model: 'claude-sonnet-4-5-20250929',
+          max_tokens: 4096,
+          system: 'You are an expert SRE assistant. Answer questions about incidents based on the provided data.',
           messages: [
-            {
-              role: 'system',
-              content: 'You are an expert SRE assistant. Answer questions about incidents based on the provided data.'
-            },
             {
               role: 'user',
               content: `Incident: ${incident.title || 'Untitled'}
@@ -115,7 +113,7 @@ Question: ${query}`
           temperature: 0.3,
         });
 
-        response = aiResponse.choices[0]?.message?.content || 'No response generated';
+        response = aiResponse.content[0].type === 'text' ? aiResponse.content[0].text : 'No response generated';
 
         await prisma.incident_queries.update({
           where: { id: incidentQuery.id },

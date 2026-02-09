@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifySlackRequest } from '../../../lib/alerts';
 import { prisma } from '../../../lib/prisma';
-import { openai } from '../../../lib/openai';
+import { anthropic } from '../../../lib/anthropic';
 
 export async function POST(request: NextRequest) {
   try {
@@ -38,29 +38,27 @@ export async function POST(request: NextRequest) {
 
     setTimeout(async () => {
       try {
-        const aiResponse = await openai.chat.completions.create({
-      model: 'gpt-4o',
-      messages: [
-        {
-          role: 'system',
-          content: `You are an expert SRE assistant responding to Slack commands. 
+        const aiResponse = await anthropic.messages.create({
+      model: 'claude-sonnet-4-5-20250929',
+      max_tokens: 4096,
+      system: `You are an expert SRE assistant responding to Slack commands.
           Provide concise, actionable responses about incidents and system status.
           If asked about specific incidents, reference the provided incident data.
-          Keep responses under 300 words and use bullet points when helpful.`
-        },
+          Keep responses under 300 words and use bullet points when helpful.`,
+      messages: [
         {
           role: 'user',
-              content: `Recent incidents: ${recentIncidents.map((inc: any) => 
+              content: `Recent incidents: ${recentIncidents.map((inc: any) =>
             `${inc.title || 'Untitled'} (${inc.status}): ${inc.ai_summary || 'No summary'}`
           ).join('\n')}
-          
+
           User question: ${text}`
         }
       ],
       temperature: 0.3,
     });
 
-        const response = aiResponse.choices[0]?.message?.content || 'No response generated';
+        const response = aiResponse.content[0].type === 'text' ? aiResponse.content[0].text : 'No response generated';
         await fetch(responseUrl, {
       method: 'POST',
       headers: {

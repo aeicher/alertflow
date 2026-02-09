@@ -50,7 +50,7 @@ if [ ! -f ".env.local" ]; then
     echo "  - SLACK_SIGNING_SECRET"
     echo "  - SLACK_CLIENT_ID"
     echo "  - SLACK_CLIENT_SECRET"
-    echo "  - OPENAI_API_KEY"
+    echo "  - ANTHROPIC_API_KEY"
     echo "  - NEXT_PUBLIC_BASE_URL"
 fi
 
